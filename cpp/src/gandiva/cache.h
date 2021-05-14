@@ -20,7 +20,7 @@
 #include <cstdlib>
 #include <mutex>
 
-#include "gandiva/lru_cache.h"
+#include "gandiva/new_cache.h"
 #include "gandiva/visibility.h"
 
 namespace gandiva {
@@ -53,7 +53,8 @@ class Cache {
   }
 
  private:
-  LruCache<KeyType, ValueType> cache_;
+  // LruCache<KeyType, ValueType> cache_;
+  NewCache<KeyType, ValueType> cache_;
   std::mutex mtx_;
 };
 }  // namespace gandiva

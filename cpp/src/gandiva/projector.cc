@@ -174,6 +174,7 @@ Status Projector::Make(SchemaPtr schema, const ExpressionVector& exprs,
     ARROW_RETURN_NOT_OK(expr_validator.Validate(expr));
   }
 
+  // TODO shift the place for building to the cache
   ARROW_RETURN_NOT_OK(llvm_gen->Build(exprs, selection_vector_mode));
 
   // save the output field types. Used for validation at Evaluate() time.
