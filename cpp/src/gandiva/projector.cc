@@ -40,6 +40,7 @@ class ProjectorCacheKey {
     size_t result = kSeedValue;
     for (auto& expr : expression_vector) {
       std::string expr_as_string = expr->ToString();
+      ARROW_LOG(INFO) << "string representation:" << expr_as_string << "\n";
       expressions_as_strings_.push_back(expr_as_string);
       arrow::internal::hash_combine(result, expr_as_string);
       UpdateUniqifier(expr_as_string);
@@ -158,6 +159,8 @@ Status Projector::Make(SchemaPtr schema, const ExpressionVector& exprs,
   ProjectorCacheKey cache_key(schema, configuration, exprs, selection_vector_mode);
   std::shared_ptr<Projector> cached_projector = cache.GetModule(cache_key);
   if (cached_projector != nullptr) {
+    ARROW_LOG(INFO) << "cache hit\n";
+
     *projector = cached_projector;
     return Status::OK();
   }
