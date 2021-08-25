@@ -268,6 +268,7 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
   }
   arguments.push_back(types()->i64_type());  // ctx_ptr
   arguments.push_back(types()->i64_type());  // nrec
+  arguments.push_back(types()->i32_type());  // query_param
   llvm::FunctionType* prototype =
       llvm::FunctionType::get(types()->i32_type(), arguments, false /*isVarArg*/);
 
@@ -298,6 +299,9 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
   ++args;
   llvm::Value* arg_nrecords = &*args;
   arg_nrecords->setName("nrecords");
+  ++args;
+  llvm::Value* arg_query_param = &*args;
+  arg_query_param->setName("query_param");
 
   llvm::BasicBlock* loop_entry = llvm::BasicBlock::Create(*context(), "entry", *fn);
   llvm::BasicBlock* loop_body = llvm::BasicBlock::Create(*context(), "loop", *fn);
@@ -335,7 +339,7 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
 
   // The visitor can add code to both the entry/loop blocks.
   Visitor visitor(this, *fn, loop_entry, arg_addrs, arg_local_bitmaps, slice_offsets,
-                  arg_context_ptr, position_var);
+                  arg_context_ptr, arg_query_param, position_var);
   value_expr->Accept(visitor);
   LValuePtr output_value = visitor.result();
 
@@ -523,7 +527,8 @@ LLVMGenerator::Visitor::Visitor(LLVMGenerator* generator, llvm::Function* functi
                                 llvm::BasicBlock* entry_block, llvm::Value* arg_addrs,
                                 llvm::Value* arg_local_bitmaps,
                                 std::vector<llvm::Value*> slice_offsets,
-                                llvm::Value* arg_context_ptr, llvm::Value* loop_var)
+                                llvm::Value* arg_context_ptr, llvm::Value* arg_query_param,
+                                llvm::Value* loop_var)
     : generator_(generator),
       function_(function),
       entry_block_(entry_block),
@@ -531,6 +536,7 @@ LLVMGenerator::Visitor::Visitor(LLVMGenerator* generator, llvm::Function* functi
       arg_local_bitmaps_(arg_local_bitmaps),
       slice_offsets_(slice_offsets),
       arg_context_ptr_(arg_context_ptr),
+      arg_query_param_(arg_query_param),
       loop_var_(loop_var),
       has_arena_allocs_(false) {
   ADD_VISITOR_TRACE("Iteration %T", loop_var);
@@ -716,6 +722,7 @@ void LLVMGenerator::Visitor::Visit(const LiteralDex& dex) {
     default:
       DCHECK(0);
   }
+  value = arg_query_param_;
   ADD_VISITOR_TRACE("visit Literal %T", value);
   result_.reset(new LValue(value, len));
 }
