@@ -40,4 +40,9 @@ if(ARROW_BUILD_STATIC)
                       "gandiva"
                       EXTRA_LINK_LIBS
                       gandiva_static)
+  add_arrow_benchmark(aic_micro_benchmarks
+                      PREFIX
+                      "gandiva"
+                      EXTRA_LINK_LIBS
+                      gandiva_static)
 endif()

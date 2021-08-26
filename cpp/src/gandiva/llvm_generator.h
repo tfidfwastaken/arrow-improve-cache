@@ -28,6 +28,7 @@
 #include "gandiva/compiled_expr.h"
 #include "gandiva/configuration.h"
 #include "gandiva/dex_visitor.h"
+#include "gandiva/dextractor.h"
 #include "gandiva/engine.h"
 #include "gandiva/execution_context.h"
 #include "gandiva/function_registry.h"
@@ -74,6 +75,9 @@ class GANDIVA_EXPORT LLVMGenerator {
   LLVMTypes* types() { return engine_->types(); }
   llvm::Module* module() { return engine_->module(); }
   std::string DumpIR() { return engine_->DumpIR(); }
+
+  void set_param(LiteralHolder value) { query_param_holder_ = value; }
+  void set_type(arrow::Type::type type) { type_ = type; }
 
  private:
   LLVMGenerator();
@@ -250,6 +254,11 @@ class GANDIVA_EXPORT LLVMGenerator {
   // used for debug
   bool enable_ir_traces_;
   std::vector<std::string> trace_strings_;
+
+  // for parameterising literals
+  arrow::Type::type type_;
+  size_t hash_key_;
+  LiteralHolder query_param_holder_;
 };
 
 }  // namespace gandiva

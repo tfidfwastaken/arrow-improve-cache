@@ -61,6 +61,7 @@ set(SRC_FILES
     decimal_ir.cc
     decimal_type_util.cc
     decimal_xlarge.cc
+    dextractor.cc
     engine.cc
     date_utils.cc
     expr_decomposer.cc
@@ -84,6 +85,7 @@ set(SRC_FILES
     llvm_types.cc
     like_holder.cc
     literal_holder.cc
+    nextractor.cc
     projector.cc
     regex_util.cc
     replace_holder.cc

@@ -24,9 +24,12 @@
 #include <utility>
 #include <vector>
 
+#include "arrow/util/variant.h"
+
 #include "gandiva/bitmap_accumulator.h"
 #include "gandiva/decimal_ir.h"
 #include "gandiva/dex.h"
+#include "gandiva/dextractor.h"
 #include "gandiva/expr_decomposer.h"
 #include "gandiva/expression.h"
 #include "gandiva/lvalue.h"
@@ -46,6 +49,7 @@ Status LLVMGenerator::Make(std::shared_ptr<Configuration> config,
 
   ARROW_RETURN_NOT_OK(Engine::Make(config, &(llvmgen_obj->engine_)));
   *llvm_generator = std::move(llvmgen_obj);
+  (*llvm_generator)->type_ = arrow::Type::type::NA;
 
   return Status::OK();
 }
@@ -124,9 +128,42 @@ Status LLVMGenerator::Execute(const arrow::RecordBatch& record_batch,
     }
 
     EvalFunc jit_function = compiled_expr->GetJITFunction(mode);
+
+    void* val = nullptr;
+    switch (type_) {
+      case arrow::Type::BOOL:
+        val = arrow::util::get_if<bool>(&query_param_holder_);
+        break;
+      case arrow::Type::UINT8:
+        val = arrow::util::get_if<uint8_t>(&query_param_holder_);
+        break;
+      case arrow::Type::INT8:
+        val = arrow::util::get_if<int8_t>(&query_param_holder_);
+        break;
+      case arrow::Type::UINT32:
+        val = arrow::util::get_if<uint32_t>(&query_param_holder_);
+        break;
+      case arrow::Type::INT32:
+        val = arrow::util::get_if<int32_t>(&query_param_holder_);
+        break;
+      case arrow::Type::UINT64:
+        val = arrow::util::get_if<uint64_t>(&query_param_holder_);
+        break;
+      case arrow::Type::INT64:
+        val = arrow::util::get_if<int64_t>(&query_param_holder_);
+        break;
+      case arrow::Type::FLOAT:
+        val = arrow::util::get_if<float>(&query_param_holder_);
+        break;
+      case arrow::Type::DOUBLE:
+        val = arrow::util::get_if<double>(&query_param_holder_);
+        break;
+      default: break;
+    }
     jit_function(eval_batch->GetBufferArray(), eval_batch->GetBufferOffsetArray(),
                  eval_batch->GetLocalBitMapArray(), selection_buffer,
-                 (int64_t)eval_batch->GetExecutionContext(), num_output_rows);
+                 (int64_t)eval_batch->GetExecutionContext(), num_output_rows,
+                 (int64_t)val);
 
     // check for execution errors
     ARROW_RETURN_IF(
@@ -248,6 +285,12 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
                                        llvm::Function** fn,
                                        SelectionVector::Mode selection_vector_mode) {
   llvm::IRBuilder<>* builder = ir_builder();
+  //Dextractor dextractor(this);
+  //value_expr->Accept(dextractor);
+  //query_param_holder_ = dextractor.holder();
+  //ARROW_LOG(INFO) << arrow::util::get_if<int64_t>(&query_param_holder_);
+  //auto query_param_type_ = dextractor.type();
+
   // Create fn prototype :
   //   int expr_1 (long **addrs, long *offsets, long **bitmaps,
   //               long *context_ptr, long nrec)
@@ -268,7 +311,7 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
   }
   arguments.push_back(types()->i64_type());  // ctx_ptr
   arguments.push_back(types()->i64_type());  // nrec
-  arguments.push_back(types()->i32_type());  // query_param
+  arguments.push_back(types()->i64_type());  // query_param
   llvm::FunctionType* prototype =
       llvm::FunctionType::get(types()->i32_type(), arguments, false /*isVarArg*/);
 
@@ -300,8 +343,8 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
   llvm::Value* arg_nrecords = &*args;
   arg_nrecords->setName("nrecords");
   ++args;
-  llvm::Value* arg_query_param = &*args;
-  arg_query_param->setName("query_param");
+  llvm::Value* arg_query_param_addr = &*args;
+  arg_query_param_addr->setName("query_param_addr");
 
   llvm::BasicBlock* loop_entry = llvm::BasicBlock::Create(*context(), "entry", *fn);
   llvm::BasicBlock* loop_body = llvm::BasicBlock::Create(*context(), "loop", *fn);
@@ -323,6 +366,14 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
     slice_offsets.push_back(offset);
   }
 
+  llvm::LoadInst* param_val = nullptr;
+  if (type_ != arrow::Type::type::NA) {
+    auto query_param_ptr = builder->CreateIntToPtr(arg_query_param_addr,
+                                                   types()->ptr_type(types()->IRType(type_)),
+                                                   "query_param_ptr");
+    param_val = builder->CreateLoad(query_param_ptr);
+  }
+
   // Loop body
   builder->SetInsertPoint(loop_body);
 
@@ -339,7 +390,7 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
 
   // The visitor can add code to both the entry/loop blocks.
   Visitor visitor(this, *fn, loop_entry, arg_addrs, arg_local_bitmaps, slice_offsets,
-                  arg_context_ptr, arg_query_param, position_var);
+                  arg_context_ptr, param_val, position_var);
   value_expr->Accept(visitor);
   LValuePtr output_value = visitor.result();
 
@@ -722,7 +773,8 @@ void LLVMGenerator::Visitor::Visit(const LiteralDex& dex) {
     default:
       DCHECK(0);
   }
-  value = arg_query_param_;
+  if (arg_query_param_ != nullptr)
+    value = arg_query_param_;
   ADD_VISITOR_TRACE("visit Literal %T", value);
   result_.reset(new LValue(value, len));
 }

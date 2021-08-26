@@ -28,6 +28,7 @@
 #include "gandiva/cache.h"
 #include "gandiva/expr_validator.h"
 #include "gandiva/llvm_generator.h"
+#include "gandiva/nextractor.h"
 
 namespace gandiva {
 
@@ -162,6 +163,14 @@ Status Projector::Make(SchemaPtr schema, const ExpressionVector& exprs,
     ARROW_LOG(INFO) << "cache hit\n";
 
     *projector = cached_projector;
+    Nextractor nextractor;
+    for (auto& expr : exprs) {
+      ARROW_RETURN_NOT_OK(nextractor.Extract(expr));
+      if (nextractor.literal_found())
+        break;
+    }
+    LiteralHolder new_value = nextractor.holder();
+    (*projector)->llvm_generator_->set_param(new_value);
     return Status::OK();
   }
 
@@ -177,13 +186,21 @@ Status Projector::Make(SchemaPtr schema, const ExpressionVector& exprs,
     ARROW_RETURN_NOT_OK(expr_validator.Validate(expr));
   }
 
+  Nextractor nextractor;
+  for (auto& expr : exprs) {
+    ARROW_RETURN_NOT_OK(nextractor.Extract(expr));
+    if (nextractor.literal_found())
+      break;
+  }
+  llvm_gen->set_param(nextractor.holder());
+  llvm_gen->set_type(nextractor.type());
   // Start measuring build time
   auto begin = std::chrono::high_resolution_clock::now();
   ARROW_RETURN_NOT_OK(llvm_gen->Build(exprs, selection_vector_mode));
   // Stop measuring time and calculate the elapsed time
   auto end = std::chrono::high_resolution_clock::now();
   auto elapsed =
-      std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
+    std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
 
   // save the output field types. Used for validation at Evaluate() time.
   std::vector<FieldPtr> output_fields;
