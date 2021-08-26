@@ -22,6 +22,8 @@
  (powershell-mode . ((indent-tabs-mode . nil)))
  (c-mode . ((mode . c++)))
  (nil . ((show-trailing-whitespace . t)
+         (c-basic-offset . 2)
+         (tab-width . 2)
          (eval . (setq flycheck-clang-include-path
                        (list "/Users/atharva/arrow-improve-cache/cpp/src" "/opt/homebrew/include"
                              "/opt/homebrew/opt/llvm/include"))))))
