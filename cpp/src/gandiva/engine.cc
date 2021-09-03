@@ -274,7 +274,10 @@ Status Engine::RemoveUnusedFunctions() {
 
 // Optimise and compile the module.
 Status Engine::FinalizeModule() {
+  auto begin = std::chrono::high_resolution_clock::now();
   ARROW_RETURN_NOT_OK(RemoveUnusedFunctions());
+  auto end = std::chrono::high_resolution_clock::now();
+  ARROW_LOG(INFO) << "removeunused: " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
 
   if (optimize_) {
     // misc passes to allow for inlining, vectorization, ..
@@ -305,7 +308,10 @@ Status Engine::FinalizeModule() {
                   Status::CodeGenError("Module verification failed after optimizer"));
 
   // do the compilation
+  begin = std::chrono::high_resolution_clock::now();
   execution_engine_->finalizeObject();
+  end = std::chrono::high_resolution_clock::now();
+  ARROW_LOG(INFO) << "fo: " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
   module_finalized_ = true;
 
   return Status::OK();

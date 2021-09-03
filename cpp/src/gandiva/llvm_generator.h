@@ -33,6 +33,7 @@
 #include "gandiva/function_registry.h"
 #include "gandiva/gandiva_aliases.h"
 #include "gandiva/llvm_types.h"
+#include "gandiva/literal_holder.h"
 #include "gandiva/lvalue.h"
 #include "gandiva/selection_vector.h"
 #include "gandiva/value_validity_pair.h"
@@ -75,6 +76,9 @@ class GANDIVA_EXPORT LLVMGenerator {
   llvm::Module* module() { return engine_->module(); }
   std::string DumpIR() { return engine_->DumpIR(); }
 
+  void set_param(LiteralHolder value) { query_param_holder_ = value; }
+  void set_type(arrow::Type::type type) { type_ = type; }
+
  private:
   LLVMGenerator();
 
@@ -91,7 +95,8 @@ class GANDIVA_EXPORT LLVMGenerator {
     Visitor(LLVMGenerator* generator, llvm::Function* function,
             llvm::BasicBlock* entry_block, llvm::Value* arg_addrs,
             llvm::Value* arg_local_bitmaps, std::vector<llvm::Value*> slice_offsets,
-            llvm::Value* arg_context_ptr, llvm::Value* loop_var);
+            llvm::Value* arg_context_ptr, llvm::Value* arg_query_param,
+            llvm::Value* loop_var);
 
     void Visit(const VectorReadValidityDex& dex) override;
     void Visit(const VectorReadFixedLenValueDex& dex) override;
@@ -166,6 +171,7 @@ class GANDIVA_EXPORT LLVMGenerator {
     llvm::Value* arg_local_bitmaps_;
     std::vector<llvm::Value*> slice_offsets_;
     llvm::Value* arg_context_ptr_;
+    llvm::Value* arg_query_param_;
     llvm::Value* loop_var_;
     bool has_arena_allocs_;
   };
@@ -248,6 +254,11 @@ class GANDIVA_EXPORT LLVMGenerator {
   // used for debug
   bool enable_ir_traces_;
   std::vector<std::string> trace_strings_;
+
+  // for parameterising literals
+  arrow::Type::type type_;
+  size_t hash_key_;
+  LiteralHolder query_param_holder_;
 };
 
 }  // namespace gandiva

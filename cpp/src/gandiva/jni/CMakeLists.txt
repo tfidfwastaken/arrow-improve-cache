@@ -24,6 +24,10 @@ if(MSVC)
 endif()
 
 # Find JNI
+set(JAVA_AWT_LIBRARY "$JAVA_HOME/include")
+set(JAVA_JVM_LIBRARY "$JAVA_HOME/include")
+set(JAVA_INCLUDE_PATH2 "$JAVA_HOME/include")
+set(JAVA_AWT_INCLUDE_PATH "$JAVA_HOME/include")
 find_package(JNI REQUIRED)
 
 set(PROTO_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR})

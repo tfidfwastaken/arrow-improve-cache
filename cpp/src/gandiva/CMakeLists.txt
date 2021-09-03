@@ -84,6 +84,7 @@ set(SRC_FILES
     llvm_types.cc
     like_holder.cc
     literal_holder.cc
+    nextractor.cc
     projector.cc
     regex_util.cc
     replace_holder.cc

@@ -24,6 +24,8 @@
 #include <utility>
 #include <vector>
 
+#include "arrow/util/variant.h"
+
 #include "gandiva/bitmap_accumulator.h"
 #include "gandiva/decimal_ir.h"
 #include "gandiva/dex.h"
@@ -46,6 +48,7 @@ Status LLVMGenerator::Make(std::shared_ptr<Configuration> config,
 
   ARROW_RETURN_NOT_OK(Engine::Make(config, &(llvmgen_obj->engine_)));
   *llvm_generator = std::move(llvmgen_obj);
+  (*llvm_generator)->type_ = arrow::Type::type::NA;
 
   return Status::OK();
 }
@@ -77,7 +80,11 @@ Status LLVMGenerator::Build(const ExpressionVector& exprs, SelectionVector::Mode
   }
 
   // Compile and inject into the process' memory the generated function.
+  auto begin = std::chrono::high_resolution_clock::now();
   ARROW_RETURN_NOT_OK(engine_->FinalizeModule());
+  auto end = std::chrono::high_resolution_clock::now();
+  ARROW_LOG(INFO) << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
+  // ARROW_LOG(INFO) << "IR:\n" << engine_->DumpIR() << "\n";
 
   // setup the jit functions for each expression.
   for (auto& compiled_expr : compiled_exprs_) {
@@ -124,9 +131,42 @@ Status LLVMGenerator::Execute(const arrow::RecordBatch& record_batch,
     }
 
     EvalFunc jit_function = compiled_expr->GetJITFunction(mode);
+
+    void* val = nullptr;
+    switch (type_) {
+      case arrow::Type::BOOL:
+        val = arrow::util::get_if<bool>(&query_param_holder_);
+        break;
+      case arrow::Type::UINT8:
+        val = arrow::util::get_if<uint8_t>(&query_param_holder_);
+        break;
+      case arrow::Type::INT8:
+        val = arrow::util::get_if<int8_t>(&query_param_holder_);
+        break;
+      case arrow::Type::UINT32:
+        val = arrow::util::get_if<uint32_t>(&query_param_holder_);
+        break;
+      case arrow::Type::INT32:
+        val = arrow::util::get_if<int32_t>(&query_param_holder_);
+        break;
+      case arrow::Type::UINT64:
+        val = arrow::util::get_if<uint64_t>(&query_param_holder_);
+        break;
+      case arrow::Type::INT64:
+        val = arrow::util::get_if<int64_t>(&query_param_holder_);
+        break;
+      case arrow::Type::FLOAT:
+        val = arrow::util::get_if<float>(&query_param_holder_);
+        break;
+      case arrow::Type::DOUBLE:
+        val = arrow::util::get_if<double>(&query_param_holder_);
+        break;
+      default: break;
+    }
     jit_function(eval_batch->GetBufferArray(), eval_batch->GetBufferOffsetArray(),
                  eval_batch->GetLocalBitMapArray(), selection_buffer,
-                 (int64_t)eval_batch->GetExecutionContext(), num_output_rows);
+                 (int64_t)eval_batch->GetExecutionContext(), num_output_rows,
+                 (int64_t)val);
 
     // check for execution errors
     ARROW_RETURN_IF(
@@ -268,6 +308,7 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
   }
   arguments.push_back(types()->i64_type());  // ctx_ptr
   arguments.push_back(types()->i64_type());  // nrec
+  arguments.push_back(types()->i64_type());  // query_param
   llvm::FunctionType* prototype =
       llvm::FunctionType::get(types()->i32_type(), arguments, false /*isVarArg*/);
 
@@ -298,6 +339,9 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
   ++args;
   llvm::Value* arg_nrecords = &*args;
   arg_nrecords->setName("nrecords");
+  ++args;
+  llvm::Value* arg_query_param_addr = &*args;
+  arg_query_param_addr->setName("query_param_addr");
 
   llvm::BasicBlock* loop_entry = llvm::BasicBlock::Create(*context(), "entry", *fn);
   llvm::BasicBlock* loop_body = llvm::BasicBlock::Create(*context(), "loop", *fn);
@@ -319,6 +363,14 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
     slice_offsets.push_back(offset);
   }
 
+  llvm::LoadInst* param_val = nullptr;
+  if (type_ != arrow::Type::type::NA) {
+    auto query_param_ptr = builder->CreateIntToPtr(arg_query_param_addr,
+                                                   types()->ptr_type(types()->IRType(type_)),
+                                                   "query_param_ptr");
+    param_val = builder->CreateLoad(query_param_ptr);
+  }
+
   // Loop body
   builder->SetInsertPoint(loop_body);
 
@@ -335,7 +387,7 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
 
   // The visitor can add code to both the entry/loop blocks.
   Visitor visitor(this, *fn, loop_entry, arg_addrs, arg_local_bitmaps, slice_offsets,
-                  arg_context_ptr, position_var);
+                  arg_context_ptr, param_val, position_var);
   value_expr->Accept(visitor);
   LValuePtr output_value = visitor.result();
 
@@ -523,7 +575,8 @@ LLVMGenerator::Visitor::Visitor(LLVMGenerator* generator, llvm::Function* functi
                                 llvm::BasicBlock* entry_block, llvm::Value* arg_addrs,
                                 llvm::Value* arg_local_bitmaps,
                                 std::vector<llvm::Value*> slice_offsets,
-                                llvm::Value* arg_context_ptr, llvm::Value* loop_var)
+                                llvm::Value* arg_context_ptr, llvm::Value* arg_query_param,
+                                llvm::Value* loop_var)
     : generator_(generator),
       function_(function),
       entry_block_(entry_block),
@@ -531,6 +584,7 @@ LLVMGenerator::Visitor::Visitor(LLVMGenerator* generator, llvm::Function* functi
       arg_local_bitmaps_(arg_local_bitmaps),
       slice_offsets_(slice_offsets),
       arg_context_ptr_(arg_context_ptr),
+      arg_query_param_(arg_query_param),
       loop_var_(loop_var),
       has_arena_allocs_(false) {
   ADD_VISITOR_TRACE("Iteration %T", loop_var);
@@ -716,6 +770,9 @@ void LLVMGenerator::Visitor::Visit(const LiteralDex& dex) {
     default:
       DCHECK(0);
   }
+
+  if (arg_query_param_ != nullptr)
+    value = arg_query_param_;
   ADD_VISITOR_TRACE("visit Literal %T", value);
   result_.reset(new LValue(value, len));
 }

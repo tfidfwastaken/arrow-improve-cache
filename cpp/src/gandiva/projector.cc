@@ -28,6 +28,7 @@
 #include "gandiva/cache.h"
 #include "gandiva/expr_validator.h"
 #include "gandiva/llvm_generator.h"
+#include "gandiva/nextractor.h"
 
 namespace gandiva {
 
@@ -158,7 +159,18 @@ Status Projector::Make(SchemaPtr schema, const ExpressionVector& exprs,
   ProjectorCacheKey cache_key(schema, configuration, exprs, selection_vector_mode);
   std::shared_ptr<Projector> cached_projector = cache.GetModule(cache_key);
   if (cached_projector != nullptr) {
+    ARROW_LOG(INFO) << "cache hit:";
+    for (auto& expr : exprs)
+      ARROW_LOG(INFO) << expr->ToString();
     *projector = cached_projector;
+    Nextractor nextractor;
+    for (auto& expr : exprs) {
+      ARROW_RETURN_NOT_OK(nextractor.Extract(expr));
+      if (nextractor.literal_found())
+        break;
+    }
+    LiteralHolder new_value = nextractor.holder();
+    (*projector)->llvm_generator_->set_param(new_value);
     return Status::OK();
   }
 
@@ -173,6 +185,15 @@ Status Projector::Make(SchemaPtr schema, const ExpressionVector& exprs,
   for (auto& expr : exprs) {
     ARROW_RETURN_NOT_OK(expr_validator.Validate(expr));
   }
+
+  Nextractor nextractor;
+  for (auto& expr : exprs) {
+    ARROW_RETURN_NOT_OK(nextractor.Extract(expr));
+    if (nextractor.literal_found())
+      break;
+  }
+  llvm_gen->set_param(nextractor.holder());
+  llvm_gen->set_type(nextractor.type());
 
   // Start measuring build time
   auto begin = std::chrono::high_resolution_clock::now();
@@ -193,6 +214,7 @@ Status Projector::Make(SchemaPtr schema, const ExpressionVector& exprs,
   *projector = std::shared_ptr<Projector>(
       new Projector(std::move(llvm_gen), schema, output_fields, configuration));
   ValueCacheObject<std::shared_ptr<Projector>> value_cache(*projector, elapsed);
+  ARROW_LOG(INFO) << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
   cache.PutModule(cache_key, value_cache);
 
   return Status::OK();
