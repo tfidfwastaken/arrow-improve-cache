@@ -107,7 +107,7 @@ TEST_F(TestLLVMGenerator, TestAdd) {
   };
   std::array<int64_t, 6> addr_offsets{0, 0, 0, 0, 0, 0};
   eval_func(addrs.data(), addr_offsets.data(), nullptr, nullptr,
-            0 /* dummy context ptr */, kNumRecords);
+            0 /* dummy context ptr */, kNumRecords, nullptr);
 
   EXPECT_THAT(out, testing::ElementsAre(6, 8, 10, 12));
   EXPECT_EQ(out_bitmap, 0ULL);
