@@ -30,6 +30,7 @@
 #include "gandiva/expr_validator.h"
 #include "gandiva/llvm_generator.h"
 #include "gandiva/selection_vector_impl.h"
+#include "gandiva/nextractor.h"
 
 namespace gandiva {
 
@@ -107,6 +108,10 @@ Status Filter::Make(SchemaPtr schema, ConditionPtr condition,
   auto cachedFilter = cache.GetModule(cache_key);
   if (cachedFilter != nullptr) {
     *filter = cachedFilter;
+    Nextractor nextractor;
+    ARROW_RETURN_NOT_OK(nextractor.Extract(condition));
+    auto new_vec = nextractor.query_params();
+    (*filter)->llvm_generator_->set_query_params(new_vec);
     return Status::OK();
   }
 
@@ -114,6 +119,9 @@ Status Filter::Make(SchemaPtr schema, ConditionPtr condition,
   std::unique_ptr<LLVMGenerator> llvm_gen;
   ARROW_RETURN_NOT_OK(LLVMGenerator::Make(configuration, &llvm_gen));
 
+  Nextractor nextractor;
+  ARROW_RETURN_NOT_OK(nextractor.Extract(condition));
+  llvm_gen->set_query_params(nextractor.query_params());
   // Run the validation on the expression.
   // Return if the expression is invalid since we will not be able to process further.
   ExprValidator expr_validator(llvm_gen->types(), schema);

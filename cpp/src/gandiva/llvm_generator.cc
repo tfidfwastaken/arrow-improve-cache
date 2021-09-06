@@ -24,6 +24,8 @@
 #include <utility>
 #include <vector>
 
+#include "arrow/util/variant.h"
+
 #include "gandiva/bitmap_accumulator.h"
 #include "gandiva/decimal_ir.h"
 #include "gandiva/dex.h"
@@ -124,9 +126,48 @@ Status LLVMGenerator::Execute(const arrow::RecordBatch& record_batch,
     }
 
     EvalFunc jit_function = compiled_expr->GetJITFunction(mode);
+
+    std::unique_ptr<int64_t[]> lit_param_buf(new int64_t[query_params_.size()]);
+    int idx = 0;
+    void *val;
+    for (auto& pair : query_params_) {
+      switch (pair.first) {
+        case arrow::Type::BOOL:
+          val = arrow::util::get_if<bool>(&pair.second);
+          break;
+        case arrow::Type::UINT8:
+          val = arrow::util::get_if<uint8_t>(&pair.second);
+          break;
+        case arrow::Type::INT8:
+          val = arrow::util::get_if<int8_t>(&pair.second);
+          break;
+        case arrow::Type::UINT32:
+          val = arrow::util::get_if<uint32_t>(&pair.second);
+          break;
+        case arrow::Type::INT32:
+          val = arrow::util::get_if<int32_t>(&pair.second);
+          break;
+        case arrow::Type::UINT64:
+          val = arrow::util::get_if<uint64_t>(&pair.second);
+          break;
+        case arrow::Type::INT64:
+          val = arrow::util::get_if<int64_t>(&pair.second);
+          break;
+        case arrow::Type::FLOAT:
+          val = arrow::util::get_if<float>(&pair.second);
+          break;
+        case arrow::Type::DOUBLE:
+          val = arrow::util::get_if<double>(&pair.second);
+          break;
+        default: break;
+      }
+      lit_param_buf[idx] = (int64_t)val;
+      idx++;
+    }
     jit_function(eval_batch->GetBufferArray(), eval_batch->GetBufferOffsetArray(),
                  eval_batch->GetLocalBitMapArray(), selection_buffer,
-                 (int64_t)eval_batch->GetExecutionContext(), num_output_rows);
+                 (int64_t)eval_batch->GetExecutionContext(), num_output_rows,
+                 lit_param_buf.get());
 
     // check for execution errors
     ARROW_RETURN_IF(
@@ -268,6 +309,7 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
   }
   arguments.push_back(types()->i64_type());  // ctx_ptr
   arguments.push_back(types()->i64_type());  // nrec
+  arguments.push_back(types()->i64_ptr_type());  // query_param
   llvm::FunctionType* prototype =
       llvm::FunctionType::get(types()->i32_type(), arguments, false /*isVarArg*/);
 
@@ -298,6 +340,9 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
   ++args;
   llvm::Value* arg_nrecords = &*args;
   arg_nrecords->setName("nrecords");
+  ++args;
+  llvm::Value* arg_query_param_addr = &*args;
+  arg_query_param_addr->setName("query_param_addr");
 
   llvm::BasicBlock* loop_entry = llvm::BasicBlock::Create(*context(), "entry", *fn);
   llvm::BasicBlock* loop_body = llvm::BasicBlock::Create(*context(), "loop", *fn);
@@ -319,6 +364,18 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
     slice_offsets.push_back(offset);
   }
 
+  std::vector<llvm::Value*> lit_params;
+  int idx = 0;
+  for (auto& pair : query_params_) {
+    auto ptr_to_mem = builder->CreateGEP(arg_query_param_addr, types()->i32_constant(idx));
+    auto mem_addr_as_i64 = builder->CreateLoad(ptr_to_mem);
+    auto query_param_ptr = builder->CreateIntToPtr(mem_addr_as_i64,
+                                                   types()->ptr_type(types()->IRType(pair.first)),
+                                                   "query_param_ptr");
+    lit_params.push_back(builder->CreateLoad(query_param_ptr));
+    idx++;
+  }
+
   // Loop body
   builder->SetInsertPoint(loop_body);
 
@@ -335,7 +392,7 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
 
   // The visitor can add code to both the entry/loop blocks.
   Visitor visitor(this, *fn, loop_entry, arg_addrs, arg_local_bitmaps, slice_offsets,
-                  arg_context_ptr, position_var);
+                  arg_context_ptr, begin(lit_params), position_var);
   value_expr->Accept(visitor);
   LValuePtr output_value = visitor.result();
 
@@ -523,7 +580,9 @@ LLVMGenerator::Visitor::Visitor(LLVMGenerator* generator, llvm::Function* functi
                                 llvm::BasicBlock* entry_block, llvm::Value* arg_addrs,
                                 llvm::Value* arg_local_bitmaps,
                                 std::vector<llvm::Value*> slice_offsets,
-                                llvm::Value* arg_context_ptr, llvm::Value* loop_var)
+                                llvm::Value* arg_context_ptr,
+                                std::vector<llvm::Value*>::iterator lit_param_it,
+                                llvm::Value* loop_var)
     : generator_(generator),
       function_(function),
       entry_block_(entry_block),
@@ -531,6 +590,7 @@ LLVMGenerator::Visitor::Visitor(LLVMGenerator* generator, llvm::Function* functi
       arg_local_bitmaps_(arg_local_bitmaps),
       slice_offsets_(slice_offsets),
       arg_context_ptr_(arg_context_ptr),
+      lit_param_it_(lit_param_it),
       loop_var_(loop_var),
       has_arena_allocs_(false) {
   ADD_VISITOR_TRACE("Iteration %T", loop_var);
@@ -716,6 +776,8 @@ void LLVMGenerator::Visitor::Visit(const LiteralDex& dex) {
     default:
       DCHECK(0);
   }
+  value = *lit_param_it_;
+  lit_param_it_++;
   ADD_VISITOR_TRACE("visit Literal %T", value);
   result_.reset(new LValue(value, len));
 }
