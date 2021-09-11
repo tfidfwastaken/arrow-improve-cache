@@ -21,6 +21,7 @@
 #include "arrow/util/logging.h"
 
 #include "gandiva/projector.h"
+#include "gandiva/filter.h"
 #include "gandiva/tests/test_util.h"
 #include "gandiva/tree_expr_builder.h"
 
@@ -737,6 +738,52 @@ TEST_F(TestLiteral, MultiLiteralTest) {
   //  Validate results
   EXPECT_ARROW_ARRAY_EQUALS(exp_1, outputs.at(0));
   EXPECT_ARROW_ARRAY_EQUALS(exp_2, outputs1.at(0));
+}
+
+TEST_F(TestLiteral, TestSimple) {
+  // schema for input fields
+  auto field0 = field("f0", int32());
+  auto field1 = field("f1", int32());
+  auto schema = arrow::schema({field0, field1});
+
+  // Build condition f0 + f1 < 10
+  auto node_f0 = TreeExprBuilder::MakeField(field0);
+  auto node_f1 = TreeExprBuilder::MakeField(field1);
+  auto sum_func =
+      TreeExprBuilder::MakeFunction("add", {node_f0, node_f1}, arrow::int32());
+  auto literal_10 = TreeExprBuilder::MakeLiteral((int32_t)10);
+  auto literal_5 = TreeExprBuilder::MakeLiteral((int32_t)5);
+  auto less_than_10 = TreeExprBuilder::MakeFunction("less_than", {sum_func, literal_10},
+                                                    arrow::boolean());
+  auto greater_than_5 = TreeExprBuilder::MakeFunction("greater_than", {sum_func, literal_5},
+                                                    arrow::boolean());
+  auto node_or = TreeExprBuilder::MakeOr({less_than_10, greater_than_5});
+  auto condition = TreeExprBuilder::MakeCondition(node_or);
+
+  std::shared_ptr<Filter> filter;
+  auto status = Filter::Make(schema, condition, TestConfiguration(), &filter);
+  EXPECT_TRUE(status.ok());
+
+  // Create a row-batch with some sample data
+  int num_records = 5;
+  auto array0 = MakeArrowArrayInt32({1, 2, 3, 4, 6}, {true, true, true, false, true});
+  auto array1 = MakeArrowArrayInt32({5, 9, 6, 17, 3}, {true, true, false, true, true});
+  // expected output (indices for which condition matches)
+  auto exp = MakeArrowArrayUint16({0, 1, 4});
+
+  // prepare input record batch
+  auto in_batch = arrow::RecordBatch::Make(schema, num_records, {array0, array1});
+
+  std::shared_ptr<SelectionVector> selection_vector;
+  status = SelectionVector::MakeInt16(num_records, pool_, &selection_vector);
+  EXPECT_TRUE(status.ok());
+
+  // Evaluate expression
+  status = filter->Evaluate(*in_batch, selection_vector);
+  EXPECT_TRUE(status.ok());
+
+  // Validate results
+  EXPECT_ARROW_ARRAY_EQUALS(exp, selection_vector->ToArray());
 }
 
 }  // namespace gandiva
