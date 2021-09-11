@@ -53,6 +53,9 @@ Status Nextractor::Visit(const LiteralNode& node) {
 }
 
 Status Nextractor::Visit(const BooleanNode& node) {
+  for (auto& child : node.children()) {
+    ARROW_RETURN_NOT_OK(child->Accept(*this));
+  }
   return Status::OK();
 }
 
