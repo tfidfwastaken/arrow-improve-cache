@@ -20,6 +20,7 @@
 namespace gandiva {
 
 Status Nextractor::Extract(const ExpressionPtr& expr) {
+  query_params_.clear();
   Node& root = *expr->root();
   ARROW_RETURN_NOT_OK(root.Accept(*this));
   return Status::OK();

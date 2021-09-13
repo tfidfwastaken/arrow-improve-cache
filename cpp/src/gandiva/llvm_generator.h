@@ -76,7 +76,8 @@ class GANDIVA_EXPORT LLVMGenerator {
   llvm::Module* module() { return engine_->module(); }
   std::string DumpIR() { return engine_->DumpIR(); }
 
-  void set_query_params(std::vector<std::pair<arrow::Type::type, LiteralHolder>> value) { query_params_ = value; }
+  void set_query_params(std::vector<LiteralParamPairVector> value) { query_params_vec_ = value; }
+  std::vector<LiteralParamPairVector> query_params() { return query_params_vec_; }
 
  private:
   LLVMGenerator();
@@ -256,7 +257,7 @@ class GANDIVA_EXPORT LLVMGenerator {
   std::vector<std::string> trace_strings_;
 
   // for parameterising literals
-  std::vector<std::pair<arrow::Type::type, LiteralHolder>> query_params_;
+  std::vector<LiteralParamPairVector> query_params_vec_;
 };
 
 }  // namespace gandiva

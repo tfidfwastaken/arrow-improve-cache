@@ -161,13 +161,12 @@ Status Projector::Make(SchemaPtr schema, const ExpressionVector& exprs,
   if (cached_projector != nullptr) {
     *projector = cached_projector;
     Nextractor nextractor;
+    std::vector<LiteralParamPairVector> vec;
     for (auto& expr : exprs) {
       ARROW_RETURN_NOT_OK(nextractor.Extract(expr));
-      if (nextractor.literal_found())
-        break;
+      vec.push_back(nextractor.query_params());
     }
-    auto new_vec = nextractor.query_params();
-    (*projector)->llvm_generator_->set_query_params(new_vec);
+    (*projector)->llvm_generator_->set_query_params(vec);
     return Status::OK();
   }
 
@@ -184,12 +183,12 @@ Status Projector::Make(SchemaPtr schema, const ExpressionVector& exprs,
   }
 
   Nextractor nextractor;
+  std::vector<LiteralParamPairVector> vec;
   for (auto& expr : exprs) {
-    ARROW_RETURN_NOT_OK(nextractor.Extract(expr));
-    if (nextractor.literal_found())
-      break;
+   ARROW_RETURN_NOT_OK(nextractor.Extract(expr));
+   vec.push_back(nextractor.query_params());
   }
-  llvm_gen->set_query_params(nextractor.query_params());
+  llvm_gen->set_query_params(vec);
 
   // Start measuring build time
   auto begin = std::chrono::high_resolution_clock::now();

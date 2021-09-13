@@ -22,6 +22,9 @@
 #include <unordered_set>
 #include <vector>
 
+#include "gandiva/literal_holder.h"
+#include "arrow/type_fwd.h"
+
 namespace gandiva {
 
 class Dex;
@@ -59,4 +62,6 @@ class FunctionSignature;
 using FuncSignaturePtr = std::shared_ptr<FunctionSignature>;
 using FuncSignatureVector = std::vector<FuncSignaturePtr>;
 
+using LiteralParamPair = std::pair<arrow::Type::type, LiteralHolder>;
+using LiteralParamPairVector = std::vector<LiteralParamPair>;
 }  // namespace gandiva
