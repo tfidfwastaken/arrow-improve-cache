@@ -117,6 +117,7 @@ Status LLVMGenerator::Execute(const arrow::RecordBatch& record_batch,
                            selection_vector_mode_, " received vector with mode ", mode);
   }
 
+  int qp_idx = 0;
   for (auto& compiled_expr : compiled_exprs_) {
     // generate data/offset vectors.
     const uint8_t* selection_buffer = nullptr;
@@ -128,10 +129,10 @@ Status LLVMGenerator::Execute(const arrow::RecordBatch& record_batch,
 
     EvalFunc jit_function = compiled_expr->GetJITFunction(mode);
 
-    std::unique_ptr<int64_t[]> lit_param_buf(new int64_t[query_params_.size()]);
+    std::unique_ptr<int64_t[]> lit_param_buf(new int64_t[query_params_vec_[qp_idx].size()]);
     int idx = 0;
     void *val;
-    for (auto& pair : query_params_) {
+    for (auto& pair : query_params_vec_[qp_idx]) {
       switch (pair.first) {
         case arrow::Type::BOOL:
           val = arrow::util::get_if<bool>(&pair.second);
@@ -177,6 +178,7 @@ Status LLVMGenerator::Execute(const arrow::RecordBatch& record_batch,
 
     // generate validity vectors.
     ComputeBitMapsForExpr(*compiled_expr, *eval_batch, selection_vector);
+    qp_idx++;
   }
 
   return Status::OK();
@@ -367,7 +369,8 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
 
   std::vector<llvm::Value*> lit_params;
   int idx = 0;
-  for (auto& pair : query_params_) {
+  ARROW_LOG(INFO) << "qpsize: " << query_params_vec_[suffix_idx].size();
+  for (auto& pair : query_params_vec_[suffix_idx]) {
     auto ptr_to_mem = builder->CreateGEP(arg_query_param_addr, types()->i32_constant(idx));
     auto mem_addr_as_i64 = builder->CreateLoad(ptr_to_mem);
     auto query_param_ptr = builder->CreateIntToPtr(mem_addr_as_i64,
@@ -377,6 +380,7 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
     idx++;
   }
 
+  ARROW_LOG(INFO) << "Vecsize: " << lit_params.size();
   // Loop body
   builder->SetInsertPoint(loop_body);
 

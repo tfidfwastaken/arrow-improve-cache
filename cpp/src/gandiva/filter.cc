@@ -113,7 +113,7 @@ Status Filter::Make(SchemaPtr schema, ConditionPtr condition,
     Nextractor nextractor;
     ARROW_RETURN_NOT_OK(nextractor.Extract(condition));
     auto new_vec = nextractor.query_params();
-    (*filter)->llvm_generator_->set_query_params(new_vec);
+    (*filter)->llvm_generator_->set_query_params({new_vec});
     return Status::OK();
   }
 
@@ -123,7 +123,8 @@ Status Filter::Make(SchemaPtr schema, ConditionPtr condition,
 
   Nextractor nextractor;
   ARROW_RETURN_NOT_OK(nextractor.Extract(condition));
-  llvm_gen->set_query_params(nextractor.query_params());
+  llvm_gen->set_query_params({nextractor.query_params()});
+  ARROW_LOG(INFO) << nextractor.query_params().size();
   // Run the validation on the expression.
   // Return if the expression is invalid since we will not be able to process further.
   ExprValidator expr_validator(llvm_gen->types(), schema);
