@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "arrow/util/variant.h"
 #include "gandiva/nextractor.h"
 
 namespace gandiva {
@@ -48,6 +49,13 @@ Status Nextractor::Visit(const LiteralNode& node) {
   auto type = node.return_type()->id();
   auto value = node.holder();
   auto pair = std::make_pair(type, value);
+  if (type == arrow::Type::type::STRING ||
+      type == arrow::Type::type::BINARY) {
+    auto lentype = arrow::Type::type::INT32;
+    int32_t len = arrow::util::get<std::string>(node.holder()).length();
+    auto lenpair = std::make_pair(lentype, LiteralHolder(len));
+    query_params_.push_back(lenpair);
+  }
   query_params_.push_back(pair);
   found_literal_ = false;
   return Status::OK();

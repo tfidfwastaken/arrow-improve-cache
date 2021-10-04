@@ -131,6 +131,7 @@ Status LLVMGenerator::Execute(const arrow::RecordBatch& record_batch,
     std::unique_ptr<int64_t[]> lit_param_buf(new int64_t[query_params_vec_[qp_idx].size()]);
     int idx = 0;
     void *val;
+    std::vector<char **> allocated;
     for (auto& pair : query_params_vec_[qp_idx]) {
       switch (pair.first) {
         case arrow::Type::BOOL:
@@ -160,6 +161,18 @@ Status LLVMGenerator::Execute(const arrow::RecordBatch& record_batch,
         case arrow::Type::DOUBLE:
           val = arrow::util::get_if<double>(&pair.second);
           break;
+        case arrow::Type::BINARY:
+        case arrow::Type::STRING: {
+          const char* cstr;
+          std::string* pstr;
+          pstr = arrow::util::get_if<std::string>(&pair.second);
+          cstr = pstr->c_str();
+          char** str = new char*;
+          *str = strdup(cstr);
+          val = (void *) str;
+          allocated.push_back(str);
+          break;
+        }
         default: break;
       }
       lit_param_buf[idx] = (int64_t)val;
@@ -169,6 +182,10 @@ Status LLVMGenerator::Execute(const arrow::RecordBatch& record_batch,
                  eval_batch->GetLocalBitMapArray(), selection_buffer,
                  (int64_t)eval_batch->GetExecutionContext(), num_output_rows,
                  lit_param_buf.get());
+
+    // deallocate the allocated pointers to strings
+    for (char** ptr : allocated)
+      delete ptr;
 
     // check for execution errors
     ARROW_RETURN_IF(
@@ -374,7 +391,8 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
     auto query_param_ptr = builder->CreateIntToPtr(mem_addr_as_i64,
                                                    types()->ptr_type(types()->IRType(pair.first)),
                                                    "query_param_ptr");
-    lit_params.push_back(builder->CreateLoad(query_param_ptr));
+    auto load = builder->CreateLoad(query_param_ptr);
+    lit_params.push_back(load);
     idx++;
   }
 
@@ -777,6 +795,13 @@ void LLVMGenerator::Visitor::Visit(const LiteralDex& dex) {
 
     default:
       DCHECK(0);
+  }
+
+  if (dex.type()->id() == arrow::Type::type::STRING ||
+      dex.type()->id() == arrow::Type::type::BINARY) {
+    len = *lit_param_it_;
+    ADD_VISITOR_TRACE("visit Literallen %T", len);
+    lit_param_it_++;
   }
   value = *lit_param_it_;
   lit_param_it_++;
