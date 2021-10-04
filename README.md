@@ -17,6 +17,10 @@
   under the License.
 -->
 
+# Fork: Implementing literal query caching and other optimizations in Gandiva
+
+Details: https://docs.google.com/presentation/d/1hT6qo80WIYcMrZ4t9u9_Jci8VVlakSp_w6a8HseDjE0/edit?usp=sharing 
+
 # Apache Arrow
 
 [![Fuzzing Status](https://oss-fuzz-build-logs.storage.googleapis.com/badges/arrow.svg)](https://bugs.chromium.org/p/oss-fuzz/issues/list?sort=-opened&can=1&q=proj:arrow)
