@@ -138,6 +138,8 @@ class GANDIVA_EXPORT Projector {
   SchemaPtr schema_;
   FieldVector output_fields_;
   std::shared_ptr<Configuration> configuration_;
+  int hits_;
+  static int opt_thresh_;
 };
 
 }  // namespace gandiva

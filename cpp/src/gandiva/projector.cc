@@ -32,6 +32,8 @@
 
 namespace gandiva {
 
+int Projector::opt_thresh_;
+
 class ProjectorCacheKey {
  public:
   ProjectorCacheKey(SchemaPtr schema, std::shared_ptr<Configuration> configuration,
@@ -128,7 +130,8 @@ Projector::Projector(std::unique_ptr<LLVMGenerator> llvm_generator, SchemaPtr sc
     : llvm_generator_(std::move(llvm_generator)),
       schema_(schema),
       output_fields_(output_fields),
-      configuration_(configuration) {}
+      configuration_(configuration),
+      hits_(0) {}
 
 Projector::~Projector() {}
 
@@ -167,6 +170,9 @@ Status Projector::Make(SchemaPtr schema, const ExpressionVector& exprs,
       vec.push_back(nextractor.query_params());
     }
     (*projector)->llvm_generator_->set_query_params(vec);
+    (*projector)->hits_++;
+    if ((*projector)->hits_ >= opt_thresh_)
+      (*projector)->llvm_generator_->set_optimize(true);
     return Status::OK();
   }
 
@@ -205,9 +211,12 @@ Status Projector::Make(SchemaPtr schema, const ExpressionVector& exprs,
     output_fields.push_back(expr->result());
   }
 
+  char* thresh = std::getenv("GANDIVA_OPT_THRESH");
   // Instantiate the projector with the completely built llvm generator
   *projector = std::shared_ptr<Projector>(
       new Projector(std::move(llvm_gen), schema, output_fields, configuration));
+  (*projector)->llvm_generator_->set_optimize(false);
+  (*projector)->opt_thresh_ = thresh ? atoi(thresh) : 1;
   ValueCacheObject<std::shared_ptr<Projector>> value_cache(*projector, elapsed);
   cache.PutModule(cache_key, value_cache);
 

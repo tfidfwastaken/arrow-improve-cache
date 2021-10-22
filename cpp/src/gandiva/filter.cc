@@ -34,6 +34,8 @@
 
 namespace gandiva {
 
+int Filter::opt_thresh_;
+
 FilterCacheKey::FilterCacheKey(SchemaPtr schema,
                                std::shared_ptr<Configuration> configuration,
                                Expression& expression)
@@ -112,6 +114,9 @@ Status Filter::Make(SchemaPtr schema, ConditionPtr condition,
     ARROW_RETURN_NOT_OK(nextractor.Extract(condition));
     auto new_vec = nextractor.query_params();
     (*filter)->llvm_generator_->set_query_params({new_vec});
+    (*filter)->hits_++;
+    if ((*filter)->hits_ >= opt_thresh_)
+      (*filter)->llvm_generator_->set_optimize(true);
     return Status::OK();
   }
 
@@ -135,8 +140,11 @@ Status Filter::Make(SchemaPtr schema, ConditionPtr condition,
   auto elapsed =
       std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
 
+  char* thresh = std::getenv("GANDIVA_OPT_THRESH");
   // Instantiate the filter with the completely built llvm generator
   *filter = std::make_shared<Filter>(std::move(llvm_gen), schema, configuration);
+  (*filter)->llvm_generator_->set_optimize(false);
+  (*filter)->opt_thresh_ = thresh ? atoi(thresh) : 1;
   ValueCacheObject<std::shared_ptr<Filter>> value_cache(*filter, elapsed);
   cache.PutModule(cache_key, value_cache);
 

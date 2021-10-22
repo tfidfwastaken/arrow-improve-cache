@@ -75,6 +75,7 @@ class GANDIVA_EXPORT LLVMGenerator {
   LLVMTypes* types() { return engine_->types(); }
   llvm::Module* module() { return engine_->module(); }
   std::string DumpIR() { return engine_->DumpIR(); }
+  void set_optimize(bool opt) { engine_->set_optimize(opt); }
 
   void set_query_params(std::vector<LiteralParamPairVector> value) { query_params_vec_ = value; }
   std::vector<LiteralParamPairVector> query_params() { return query_params_vec_; }

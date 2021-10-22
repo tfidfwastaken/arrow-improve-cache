@@ -67,6 +67,8 @@ class GANDIVA_EXPORT Engine {
   /// Return the generated IR for the module.
   std::string DumpIR();
 
+  void set_optimize(bool opt) { optimize_ = opt; }
+
  private:
   Engine(const std::shared_ptr<Configuration>& conf,
          std::unique_ptr<llvm::LLVMContext> ctx,
@@ -97,7 +99,7 @@ class GANDIVA_EXPORT Engine {
 
   std::vector<std::string> functions_to_compile_;
 
-  bool optimize_ = true;
+  bool optimize_ = false;
   bool module_finalized_ = false;
 };
 

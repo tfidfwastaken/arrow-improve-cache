@@ -107,6 +107,8 @@ class GANDIVA_EXPORT Filter {
   std::unique_ptr<LLVMGenerator> llvm_generator_;
   SchemaPtr schema_;
   std::shared_ptr<Configuration> configuration_;
+  int hits_;
+  static int opt_thresh_;
 };
 
 }  // namespace gandiva
