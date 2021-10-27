@@ -171,8 +171,23 @@ Status Projector::Make(SchemaPtr schema, const ExpressionVector& exprs,
     }
     (*projector)->llvm_generator_->set_query_params(vec);
     (*projector)->hits_++;
-    if ((*projector)->hits_ >= opt_thresh_)
-      (*projector)->llvm_generator_->set_optimize(true);
+    ARROW_LOG(INFO) << "cache hit: " << (*projector)->hits_;
+    if ((*projector)->hits_ == opt_thresh_) {
+      // Build LLVM generator, and generate code for the specified expressions
+      std::unique_ptr<LLVMGenerator> llvm_gen;
+      ARROW_RETURN_NOT_OK(LLVMGenerator::Make(configuration, &llvm_gen));
+      llvm_gen->set_optimize(true);
+      ARROW_LOG(INFO) << "we have now set optimize to true";
+
+      llvm_gen->set_query_params(vec);
+      auto begin = std::chrono::high_resolution_clock::now();
+      ARROW_RETURN_NOT_OK(llvm_gen->Build(exprs, selection_vector_mode));
+      auto end = std::chrono::high_resolution_clock::now();
+      auto elapsed =
+        std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
+      (*projector)->llvm_generator_ = std::move(llvm_gen);
+      cache.UpdateCost(cache_key, elapsed);
+    }
     return Status::OK();
   }
 
@@ -217,6 +232,7 @@ Status Projector::Make(SchemaPtr schema, const ExpressionVector& exprs,
       new Projector(std::move(llvm_gen), schema, output_fields, configuration));
   (*projector)->llvm_generator_->set_optimize(false);
   (*projector)->opt_thresh_ = thresh ? atoi(thresh) : 1;
+  ARROW_LOG(INFO) << "thresh val: " << (*projector)->opt_thresh_;
   ValueCacheObject<std::shared_ptr<Projector>> value_cache(*projector, elapsed);
   cache.PutModule(cache_key, value_cache);
 

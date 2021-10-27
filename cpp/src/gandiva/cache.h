@@ -53,6 +53,12 @@ class Cache {
     mtx_.unlock();
   }
 
+  void UpdateCost(KeyType cache_key, uint64_t cost){
+    mtx_.lock();
+    cache_.update_cost(cache_key, cost);
+    mtx_.unlock();
+  }
+
  private:
   GreedyDualSizeCache<KeyType, ValueType> cache_;
   std::mutex mtx_;

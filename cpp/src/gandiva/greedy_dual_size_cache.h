@@ -133,6 +133,19 @@ class GreedyDualSizeCache {
     priority_set_.clear();
   }
 
+  void update_cost(const Key& key, uint64_t cost) {
+    typename map_type::iterator value_for_key = map_.find(key);
+    value_for_key->second.first.cost = cost;
+
+    PriorityItem item = *value_for_key->second.second;
+    item.original_priority = cost;
+
+    priority_set_.erase(value_for_key->second.second);
+    auto iter = priority_set_.insert(PriorityItem(
+        item.original_priority + inflation_, item.original_priority, item.cache_key));
+    value_for_key->second.second = iter.first;
+  }
+
  private:
   void evict() {
     // TODO: inflation overflow is unlikely to happen but needs to be handled
