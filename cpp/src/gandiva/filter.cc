@@ -93,7 +93,8 @@ Filter::Filter(std::unique_ptr<LLVMGenerator> llvm_generator, SchemaPtr schema,
                std::shared_ptr<Configuration> configuration)
     : llvm_generator_(std::move(llvm_generator)),
       schema_(schema),
-      configuration_(configuration) {}
+      configuration_(configuration),
+      hits_(0) {}
 
 Filter::~Filter() {}
 
@@ -115,8 +116,24 @@ Status Filter::Make(SchemaPtr schema, ConditionPtr condition,
     auto new_vec = nextractor.query_params();
     (*filter)->llvm_generator_->set_query_params({new_vec});
     (*filter)->hits_++;
-    if ((*filter)->hits_ >= opt_thresh_)
-      (*filter)->llvm_generator_->set_optimize(true);
+    ARROW_LOG(INFO) << "cache hit: " << (*filter)->hits_;
+    if ((*filter)->hits_ == opt_thresh_) {
+      // Build LLVM generator, and generate code for the specified expressions
+      std::unique_ptr<LLVMGenerator> llvm_gen;
+      ARROW_RETURN_NOT_OK(LLVMGenerator::Make(configuration, &llvm_gen));
+      llvm_gen->set_optimize(true);
+      ARROW_LOG(INFO) << "we have now set optimize to true";
+
+      llvm_gen->set_query_params({new_vec});
+      ARROW_LOG(INFO) << "rebuilding an optimized module...";
+      auto begin = std::chrono::high_resolution_clock::now();
+      ARROW_RETURN_NOT_OK(llvm_gen->Build({condition}, SelectionVector::Mode::MODE_NONE));
+      auto end = std::chrono::high_resolution_clock::now();
+      auto elapsed =
+        std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
+      (*filter)->llvm_generator_ = std::move(llvm_gen);
+      cache.UpdateCost(cache_key, elapsed);
+    }
     return Status::OK();
   }
 
@@ -132,6 +149,7 @@ Status Filter::Make(SchemaPtr schema, ConditionPtr condition,
   ExprValidator expr_validator(llvm_gen->types(), schema);
   ARROW_RETURN_NOT_OK(expr_validator.Validate(condition));
 
+  ARROW_LOG(INFO) << "first build...";
   // Start measuring build time
   auto begin = std::chrono::high_resolution_clock::now();
   ARROW_RETURN_NOT_OK(llvm_gen->Build({condition}, SelectionVector::Mode::MODE_NONE));

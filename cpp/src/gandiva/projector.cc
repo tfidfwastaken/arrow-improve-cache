@@ -180,6 +180,7 @@ Status Projector::Make(SchemaPtr schema, const ExpressionVector& exprs,
       ARROW_LOG(INFO) << "we have now set optimize to true";
 
       llvm_gen->set_query_params(vec);
+      ARROW_LOG(INFO) << "rebuilding an optimized module...";
       auto begin = std::chrono::high_resolution_clock::now();
       ARROW_RETURN_NOT_OK(llvm_gen->Build(exprs, selection_vector_mode));
       auto end = std::chrono::high_resolution_clock::now();
@@ -211,6 +212,7 @@ Status Projector::Make(SchemaPtr schema, const ExpressionVector& exprs,
   }
   llvm_gen->set_query_params(vec);
 
+  ARROW_LOG(INFO) << "first build...";
   // Start measuring build time
   auto begin = std::chrono::high_resolution_clock::now();
   ARROW_RETURN_NOT_OK(llvm_gen->Build(exprs, selection_vector_mode));

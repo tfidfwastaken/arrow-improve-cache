@@ -399,11 +399,13 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
   // Loop body
   builder->SetInsertPoint(loop_body);
 
+  ARROW_LOG(INFO) << "trying to make phi node...";
   // define loop_var : start with 0, +1 after each iter
   llvm::PHINode* loop_var = builder->CreatePHI(types()->i64_type(), 2, "loop_var");
 
   llvm::Value* position_var = loop_var;
   if (selection_vector_mode != SelectionVector::MODE_NONE) {
+    ARROW_LOG(INFO) << "generating first use of phi node loop var...";
     position_var = builder->CreateIntCast(
         builder->CreateLoad(builder->CreateGEP(arg_selection_vector, loop_var),
                             "uncasted_position_var"),
@@ -427,6 +429,7 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
   builder->SetInsertPoint(loop_body_tail);
 
   auto output_type_id = output->Type()->id();
+  ARROW_LOG(INFO) << "generating second use of phi node loop var, output type id is" << output_type_id;
   if (output_type_id == arrow::Type::BOOL) {
     SetPackedBitValue(output_ref, loop_var, output_value->data());
   } else if (arrow::is_primitive(output_type_id) ||
@@ -455,10 +458,12 @@ Status LLVMGenerator::CodeGenExprValue(DexPtr value_expr, int buffer_count,
     AddFunctionCall("gdv_fn_context_arena_reset", types()->void_type(), reset_args);
   }
 
+  ARROW_LOG(INFO) << "adding loop entry in phi...";
   // check loop_var
   loop_var->addIncoming(types()->i64_constant(0), loop_entry);
   llvm::Value* loop_update =
       builder->CreateAdd(loop_var, types()->i64_constant(1), "loop_var+1");
+  ARROW_LOG(INFO) << "adding loop body tail in phi...";
   loop_var->addIncoming(loop_update, loop_body_tail);
 
   llvm::Value* loop_var_check =
